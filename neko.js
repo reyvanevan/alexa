@@ -39,7 +39,7 @@ const botgroupFile = './db/botgroup.json';
 const configPath = './db/groupConfig.json';
 const { exec, spawn, execSync } = require("child_process")
 const { smsg, tanggal, getTime, isUrl, sleep, clockString, runtime, fetchJson, getBuffer, jsonformat, format, parseMention, getRandom, getGroupAdmins, generateUniqueRefID, connect } = require('./lib/myfunc')
-const { handleBuyCommand, handleConfirmBuy, handleCancelBuy } = require('./lib/produkmanual')
+const { handleBuyCommand, handleConfirmBuy, handleCancelBuy, handleAddProduk } = require('./lib/produkmanual')
 
 // Untuk menyimpan data transaksi yang menunggu konfirmasi
 const pendingTransactions = new Map();
@@ -1404,78 +1404,9 @@ break;
       }
 
               case 'addproduk': {
-  if (!isOwner) return m.reply('Hanya owner yang bisa.');
-
-  const body = m.text.trim(); // Contoh: 'addproduk slbasic "Starlight Basic" SL 25000 27500 28000 30000 "note..."'
-  // Regex: 
-  // 1: kodeProduk (\S+)
-  // 2: namaProduk di dalam "..." ([^"]+)
-  // 3: tipeProduk (\S+)
-  // 4-7: hargaOwner, hargaGold, hargaSilver, hargaBronze (\d+)
-  // 8 (opsional): note di dalam "..." ([^"]+)
-  const regex = /^addproduk\s+(\S+)\s+"([^"]+)"\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+"([^"]+)")?$/i;
-  const match = body.match(regex);
-  if (!match) {
-    return m.reply(
-      `Format salah.\nContoh tanpa note:\n` +
-      `> addproduk slbasic "Starlight Basic" SL 25000 27500 28000 30000\n` +
-      `Contoh dengan note:\n` +
-      `> addproduk slbasic "Starlight Basic" SL 25000 27500 28000 30000 "Keterangan tambahan"`
-    );
-  }
-  const [
-    ,
-    kodeProdukRaw,
-    namaProduk,
-    tipeProdukRaw,
-    hargaOwnerStr,
-    hargaGoldStr,
-    hargaSilverStr,
-    hargaBronzeStr,
-    noteRaw
-  ] = match;
-
-  const kodeProduk = kodeProdukRaw.toLowerCase();
-  const tipeProduk = tipeProdukRaw.toUpperCase();
-  const allowed = ['SL', 'VOUCHER', 'ACCOUNT', 'OTHER'];
-  if (!allowed.includes(tipeProduk)) {
-    return m.reply(`Tipe produk tidak valid. Pilih salah satu: ${allowed.join(', ')}`);
-  }
-
-  // Parse harga
-  const hargaOwner = parseInt(hargaOwnerStr, 10);
-  const hargaGold = parseInt(hargaGoldStr, 10);
-  const hargaSilver = parseInt(hargaSilverStr, 10);
-  const hargaBronze = parseInt(hargaBronzeStr, 10);
-  if ([hargaOwner, hargaGold, hargaSilver, hargaBronze].some(isNaN)) {
-    return m.reply('Harga harus angka bulat.');
-  }
-
-  // Note optional
-  const note = noteRaw ? noteRaw.trim() : '';
-
-  const produkRef = db.collection('produk_manual').doc(kodeProduk);
-  await produkRef.set({
-    namaProduk,
-    tipeProduk,
-    aktif: true,
-    harga: {
-      OWNER: hargaOwner,
-      GOLD: hargaGold,
-      SILVER: hargaSilver,
-      BRONZE: hargaBronze
-    },
-    terjual: 0,
-    note, // catatan/deskripsi produk
-    dibuatPada: admin.firestore.FieldValue.serverTimestamp()
-  });
-
-  m.reply(
-    `✅ Produk '${namaProduk}' dengan kode '${kodeProduk}' ditambahkan.` +
-    (note ? ` Note disimpan: "${note}"` : '')
-  );
-  break;
-}
+                await handleAddProduk(m.text.trim(), isOwner, db, admin, m);
+                break;
+              }
 
         case 'addstok': {
     if (!isOwner) return m.reply('Hanya owner yang bisa.');
