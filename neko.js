@@ -39,7 +39,7 @@ const botgroupFile = './db/botgroup.json';
 const configPath = './db/groupConfig.json';
 const { exec, spawn, execSync } = require("child_process")
 const { smsg, tanggal, getTime, isUrl, sleep, clockString, runtime, fetchJson, getBuffer, jsonformat, format, parseMention, getRandom, getGroupAdmins, generateUniqueRefID, connect } = require('./lib/myfunc')
-const { handleBuyCommand, handleConfirmBuy, handleCancelBuy, handleAddProduk } = require('./lib/produkmanual')
+const { handleBuyCommand, handleConfirmBuy, handleCancelBuy, handleAddProduk, handleAddStok, handleStok } = require('./lib/produkmanual')
 
 // Untuk menyimpan data transaksi yang menunggu konfirmasi
 const pendingTransactions = new Map();
@@ -1409,209 +1409,14 @@ break;
               }
 
         case 'addstok': {
-    if (!isOwner) return m.reply('Hanya owner yang bisa.');
-    const [kodeProdukRaw, ...rawEntries] = args;
-    if (!kodeProdukRaw || rawEntries.length === 0) {
-      return m.reply(`Format salah.\nContoh:\n> addstok slbasic 748418773:8938*2`);
-    }
-    const kodeProduk = kodeProdukRaw.toLowerCase();
-    const produkRef = db.collection('produk_manual').doc(kodeProduk);
-    const produkSnap = await produkRef.get();
-    if (!produkSnap.exists) {
-      return m.reply(`Produk '${kodeProduk}' tidak ditemukan di database.`);
-    }
-    const produkData = produkSnap.data();
-    const tipe = (produkData.tipeProduk || '').toUpperCase();
-    const allowed = ['SL','VOUCHER','ACCOUNT','OTHER'];
-    if (!allowed.includes(tipe)) {
-      return m.reply(`Tipe produk di database '${tipe}' tidak valid.`);
-    }
-
-    const entries = rawEntries.join(' ').split(',');
-    let totalAdded = 0;
-    let resultMsg = `✅ *Stok ditambahkan ke ${kodeProduk.toUpperCase()}* (tipe ${tipe})\n\n`;
-
-    try {
-      await db.runTransaction(async (transaction) => {
-        const prodDoc = await transaction.get(produkRef);
-        const prodData = prodDoc.data() || {};
-        let stokCounter = typeof prodData.stokCounter === 'number' ? prodData.stokCounter : 0;
-        const hasStokTersediaField = typeof prodData.stokTersedia === 'number';
-
-        for (let rawEntry of entries) {
-          let [stokStr, jumlahStr] = rawEntry.split('*');
-          const jumlah = parseInt(jumlahStr, 10) || 1;
-          stokStr = stokStr.trim();
-          if (!stokStr) continue;
-
-          for (let i = 0; i < jumlah; i++) {
-            stokCounter += 1;
-            totalAdded += 1;
-
-            const stokData = {
-              ditambahkanPada: admin.firestore.FieldValue.serverTimestamp(),
-              status: 'tersedia'
-            };
-            let docId;
-            if (tipe === 'SL') {
-              const [id, server] = stokStr.split(':');
-              if (!id || !server) continue;
-              // Validasi nickname
-              let nickname = 'Tidak ditemukan';
-              try {
-                const params = new URLSearchParams();
-                params.append('country','SG');
-                params.append('userId',id);
-                params.append('voucherTypeName','MOBILE_LEGENDS');
-                params.append('zoneId',server);
-                const res = await fetch('https://order-sg.codashop.com/validate', {
-                  method: 'POST',
-                  headers: {'Content-Type':'application/x-www-form-urlencoded'},
-                  body: params
-                });
-                const json = await res.json();
-                if (json?.result?.username) {
-                  nickname = decodeURIComponent(json.result.username).replace(/\+/g,' ');
-                }
-              } catch (err) {
-                console.error('Codashop Error:', err);
-              }
-              stokData.id = id;
-              stokData.server = server;
-              stokData.nickname = nickname;
-              // Nama dokumen: slug nickname + '_' + padded counter
-              const slug = nickname.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 30) || 'stok';
-              const pad = padCounter(stokCounter);
-              docId = `${pad}_${slug}`;
-              resultMsg += `• ID: ${id}\n  Server: ${server}\n  Nickname: ${nickname}\n\n`;
-            }
-            else if (tipe === 'ACCOUNT' || tipe === 'VOUCHER') {
-              stokData.data = stokStr;
-              const pad = padCounter(stokCounter);
-              docId = `${pad}stok`;
-              resultMsg += `• Data: ${stokStr}\n\n`;
-            }
-            else { // OTHER
-              stokData.raw = stokStr;
-              const pad = padCounter(stokCounter);
-              docId = `${pad}stok`;
-              resultMsg += `• Data (OTHER): ${stokStr}\n\n`;
-            }
-            const stokDocRef = produkRef.collection('stok').doc(docId);
-            transaction.set(stokDocRef, stokData);
-          }
+          await handleAddStok(args, isOwner, db, admin, m);
+          break;
         }
-        const updates = { stokCounter };
-        if (hasStokTersediaField) {
-          updates.stokTersedia = admin.firestore.FieldValue.increment(totalAdded);
-        } else {
-          updates.stokTersedia = totalAdded;
-        }
-        transaction.update(produkRef, updates);
-      });
-      m.reply(resultMsg.trim());
-    } catch (err) {
-      console.error('addstok Transaction Error:', err);
-      m.reply('❌ Gagal menambahkan stok. Coba lagi atau hubungi owner.');
-    }
-    break;
-  }
 		
         case 'stok': {
-  // Cek user terdaftar
-  const nomor = sender.split('@')[0];            
-  const userRef = db.collection('users').doc(nomor);
-  const userDoc = await userRef.get();
-  if (!userDoc.exists) return m.reply('Kamu belum terdaftar. Silakan ketik *Daftar*');
-  const userProfile = userDoc.data();
-
-  // Definisikan roleKey berdasarkan userProfile, misal userProfile.role
-  let roleKey = 'BRONZE';
-  if (userProfile.role) {
-    const rk = userProfile.role.toString().toUpperCase();
-    if (['OWNER','GOLD','SILVER','BRONZE'].includes(rk)) {
-      roleKey = rk;
-    }
-  }
-  // Sekarang roleKey sudah ada
-
-  try {
-    const produkSnap = await db.collection('produk_manual')
-      .where('aktif', '==', true)
-      .get();
-    if (produkSnap.empty) {
-      return m.reply('Belum ada produk yang terdaftar.');
-    }
-
-    const produkList = [];
-    for (const doc of produkSnap.docs) {
-      const kodeProduk = doc.id;
-      const data = doc.data();
-
-      // Hitung stok tersedia (opsional: sebaiknya simpan count di dokumen produk untuk performa)
-      let tersediaCount = 0;
-      try {
-        const stokSnap = await db.collection('produk_manual')
-          .doc(kodeProduk)
-          .collection('stok')
-          .where('status', '==', 'tersedia')
-          .get();
-        tersediaCount = stokSnap.size;
-      } catch (e) {
-        console.error(`Error fetch stok untuk ${kodeProduk}:`, e);
-      }
-
-      const harga = (data.harga && data.harga[roleKey]) ? data.harga[roleKey] : '-';
-      produkList.push({
-        kode: kodeProduk,
-        nama: data.namaProduk || '-',
-        harga,
-        terjual: typeof data.terjual === 'number' ? data.terjual : 0,
-        stokTersedia: tersediaCount,
-        note: data.note || ''
-      });
-    }
-
-    produkList.sort((a, b) => b.terjual - a.terjual);
-
-    // Bangun header, pastikan menggunakan roleKey yang sudah didefinisikan
-    const header = `
-‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎‎ ‎ ‎ ‎‎ ‎ ‎  ‎ ‎ ‎ ‎ ‎ ‎ ‎ ⣠⠞⠛⠛⠶      
-‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ⣀⡾⠛⢻⡷⢦⣄        
- ‎ ‎ ⣠⡴⠞⠛⠹⡇ ‎ ‎ ‎‎  ‎ ‎ ‎   ⢀⡟⠛⠳⢶⣄    
-⢠⣿⣄⡀‎‎ ‎  ‎   ⢿⣦⣤⣴⠿⠇ ‎ ‎𝓒-𝖼𝖺𝗍𝖺𝗅𝗈𝗀𝗎𝖾'𝗌 
-‎  ‎⠁⠉⠙⠛⠶⠶⠶⠶⠶⠶⠶⠛⠛⠉⠈
-𓈒  ֗  𝗌𝖾𝗏𝖾𝗋𝖺𝗅 𝗉𝗋𝗈𝖽𝗎𝖼𝗍𝗌 𝖺𝗏𝖺𝗂𝗅𝖺𝖻𝗅𝖾  𓈒 𓂋 𝖼𝗁𝖾𝗋𝗂𝗌'𝗒
-‎  ‎ ‎ ‎ ‎ 𝗈𝗇 ━ 제품  𝓐─𝗮𝘁𝗹𝗮𝗻𝘁𝗶𝗰 𝗴𝗮𝘁𝗲 ‎𓈒  ֗  𐂯‎‎
-‎  ‎ ‎ ‎ ‎ ‎  ‎ ‎ ‎ ‎‎  ‎ ‎ ‎ ‎  𝗉𝖾𝗋𝗌–𝖻𝗎𝗌𝗌
-
-╭┈ ketik *buy / buyqr* untuk order
-𑣿.. 𝖱𝗈𝗅𝖾 𝖠𝗇𝖽𝖺 : ${roleKey}
- |  ׄ  ᨧ︩ᨩ ۫  𝗉𝗋𝗈𝖽𝗎𝗄 𝗍𝖾𝗋𝗌𝖾𝖽𝗂𝖺 : ${produkList.length}
- |  ׄ  ᨧ︩ᨩ ۫  total stok :  ${produkList.reduce((sum, p) => sum + p.stokTersedia, 0)}
-╰──━\n  ͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏  `.trim();
-
-    const bodyLines = [header];
-    for (const p of produkList) {
-      const isBestSeller = produkList[0].kode === p.kode && p.terjual > 0;
-      const bestTag = isBestSeller ? '(Best Seller)' : '';
-      const block = `
-╭┈ 🔥 *${p.nama}* ${bestTag}
- | 𝖪𝗈𝖽𝖾 : \`${p.kode}\`
- | 𝖧𝖺𝗋𝗀𝖺 : 𝖱𝗉 ${p.harga}
- | 𝖲𝗍𝗈𝗄 𝗍𝖾𝗋𝗌𝖾𝖽𝗂𝖺 : ${p.stokTersedia}
- | 𝖲𝗍𝗈𝗄 𝗍𝖾𝗋𝗃𝗎𝖺𝗅 : ${p.terjual}
- | 𝖭𝗈𝗍𝖾 : ${p.note || '-'} 
-╰─────────⪦`.trim();
-      bodyLines.push(block);
-    }
-    const pesan = bodyLines.join('\n\n');
-    return m.reply(pesan);
-  } catch (err) {
-    console.error('Error command stok:', err);
-    return m.reply('Terjadi kesalahan saat mengambil data stok.');
-  }
-}
+          await handleStok(sender, db, m);
+          break;
+        }
 
       // Handle konfirmasi pembelian
       case 'confirm_buy': {
