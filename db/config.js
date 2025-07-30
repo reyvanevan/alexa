@@ -10,6 +10,27 @@ global.ownerName = 'Reyvan'
 global.sessionName = 'session' 
 namaStore = 'AtlanticGate' // NAMA STORE KAMU
 
+priceBronze = 33000
+priceSilver = 29000
+priceGold = 29000
+priceOwner = 27500
+
+priceBronzePremium = 70000
+priceSilverPremium = 62000
+priceGoldPremium = 59000
+priceOwnerPremium = 56000
+
+module.exports = {
+  priceBronze,
+  priceSilver,
+  priceGold,
+  priceOwner,
+  priceBronzePremium,
+  priceSilverPremium,
+  priceGoldPremium,
+  priceOwnerPremium
+}
+
 global.bot = "y"
 global.min = `tag aja etminnya kalo ngartis`
 

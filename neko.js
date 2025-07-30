@@ -39,6 +39,10 @@ const botgroupFile = './db/botgroup.json';
 const configPath = './db/groupConfig.json';
 const { exec, spawn, execSync } = require("child_process")
 const { smsg, tanggal, getTime, isUrl, sleep, clockString, runtime, fetchJson, getBuffer, jsonformat, format, parseMention, getRandom, getGroupAdmins, generateUniqueRefID, connect } = require('./lib/myfunc')
+
+// Untuk menyimpan data transaksi yang menunggu konfirmasi
+const pendingTransactions = new Map();
+
 module.exports = client = async (client, m, chatUpdate, store, db_respon_list) => {
   try {
       console.log('🔍 NEKO.JS: Message received from', m.key?.remoteJid || 'unknown'); // Debug log
@@ -421,6 +425,51 @@ if (m.isGroup && groupConfigs[m.chat] && groupConfigs[m.chat].lockedCommands?.in
     //m.reply(`‼️ Command *${command}* sedang dinonaktifkan di grup ini.\n_Silahkan hubungi *Owner* untuk meminta group khusus Topup Otomatis_`);
 }
       m.body = m.body || ''
+      
+      // Handle interactive message response untuk konfirmasi buy
+      if (m.message?.interactiveResponseMessage) {
+        const interactiveResponse = m.message.interactiveResponseMessage;
+        const selectedId = interactiveResponse.nativeFlowResponseMessage?.paramsJson;
+        
+        if (selectedId) {
+          try {
+            const params = JSON.parse(selectedId);
+            const buttonId = params.id;
+            
+            // Handle buy confirmation buttons
+            if (buttonId.startsWith('confirm_buy_') || buttonId.startsWith('cancel_buy_')) {
+              const action = buttonId.split('_')[0]; // 'confirm' atau 'cancel'
+              const transactionId = buttonId.split('_').slice(2).join('_'); // ambil ID setelah 'confirm_buy_' atau 'cancel_buy_'
+              
+              // Cek apakah transaksi masih pending
+              if (!pendingTransactions.has(transactionId)) {
+                return m.reply('❌ Transaksi tidak ditemukan atau sudah kadaluarsa.');
+              }
+
+              const transactionData = pendingTransactions.get(transactionId);
+              
+              // Pastikan yang konfirmasi adalah user yang sama
+              if (transactionData.nomor !== sender.split('@')[0]) {
+                return m.reply('❌ Kamu tidak berhak mengkonfirmasi transaksi ini.');
+              }
+
+              if (action === 'cancel') {
+                // Batalkan transaksi
+                pendingTransactions.delete(transactionId);
+                return m.reply('❌ *TRANSAKSI DIBATALKAN*\n\nTransaksi telah dibatalkan oleh user.');
+              }
+
+              if (action === 'confirm') {
+                // Redirect ke proses konfirmasi
+                body = `.confirm_buy_${transactionId}`;
+                command = 'confirm_buy';
+              }
+            }
+          } catch (err) {
+            console.error('Error handling interactive response:', err);
+          }
+        }
+      }
       
     switch (command) {
   		
@@ -1361,7 +1410,407 @@ break;
   };
 break;
 };           
-   
+      case 'buy': {
+  const nomor = sender.split('@')[0];
+  const [kodeProduk, ...restArgs] = args;
+  if (!kodeProduk) {
+    return m.reply(`Format salah!\nContoh SL: buy slbasic 12345678 1234 1\nContoh non-SL: buy akunprod 2`);
+  }
+
+  try {
+    // 1. Cek user
+    const userRef = db.collection('users').doc(nomor);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return m.reply('Kamu belum terdaftar. Silakan ketik *Daftar*');
+    }
+    const userProfile = userDoc.data();
+    let saldoAwal = parseFloat(userProfile.saldo);
+    if (isNaN(saldoAwal)) {
+      return m.reply('❌ Saldo kamu tidak valid. Hubungi owner.');
+    }
+    const role = userProfile.role?.toUpperCase() || 'BRONZE';
+
+    // 2. Ambil data produk
+    const produkRef = db.collection('produk_manual').doc(kodeProduk);
+    const produkSnap = await produkRef.get();
+    if (!produkSnap.exists) {
+      return m.reply(`❌ Produk '${kodeProduk}' tidak ditemukan.`);
+    }
+    const produkData = produkSnap.data();
+    const tipe = (produkData.tipeProduk || '').toUpperCase();
+
+    // 3. Parse argumen berdasarkan tipe
+    let userId, zoneId, jumlah;
+    if (tipe === 'SL') {
+      if (restArgs.length < 3) {
+        return m.reply(`Format SL salah!\nContoh: buy ${kodeProduk} <userId> <zoneId> <jumlah>`);
+      }
+      userId = restArgs[0];
+      zoneId = restArgs[1];
+      jumlah = parseInt(restArgs[2]);
+      if (!userId || !zoneId || isNaN(jumlah) || jumlah < 1) {
+        return m.reply(`Format SL salah!\nContoh: buy ${kodeProduk} 12345678 1234 1`);
+      }
+    } else if (tipe === 'ACCOUNT' || tipe === 'VOUCHER' || tipe === 'OTHER') {
+      if (restArgs.length < 1) {
+        return m.reply(`Format ${tipe} salah!\nContoh: buy ${kodeProduk} <jumlah>`);
+      }
+      jumlah = parseInt(restArgs[0]);
+      if (isNaN(jumlah) || jumlah < 1) {
+        return m.reply(`Format ${tipe} salah!\nContoh: buy ${kodeProduk} 2`);
+      }
+    } else {
+      return m.reply(`Tipe produk di database '${tipe}' tidak valid.`);
+    }
+
+    // 4. Cek harga & saldo
+    const hargaPerItem = produkData.harga?.[role];
+    if (!hargaPerItem || isNaN(hargaPerItem)) {
+      return m.reply(`❌ Harga tidak ditemukan untuk role *${role}*`);
+    }
+    const baseTotal = hargaPerItem * jumlah;
+    if (saldoAwal < baseTotal) {
+      return m.reply(
+        `❌ Saldo tidak cukup. Saldo kamu: Rp${saldoAwal.toLocaleString()}, Total: Rp${baseTotal.toLocaleString()}`
+      );
+    }
+
+    // 5. Untuk SL: validasi nickname via API
+    let nicknameUser = '-';
+    if (tipe === 'SL') {
+      try {
+        const params = new URLSearchParams();
+        params.append('country', 'SG');
+        params.append('userId', userId);
+        params.append('voucherTypeName', 'MOBILE_LEGENDS');
+        params.append('zoneId', zoneId);
+        const resp = await fetch('https://order-sg.codashop.com/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+          body: params
+        });
+        const json = await resp.json();
+        if (json.success !== false && json.result?.username) {
+          nicknameUser = decodeURIComponent(json.result.username).replace(/\+/g, ' ');
+        } else {
+          return m.reply('❌ Gagal validasi nickname SL. Pastikan ID dan Server benar.');
+        }
+      } catch (err) {
+        console.error('Error validasi ML:', err);
+        return m.reply('❌ Terjadi kesalahan saat validasi nickname SL.');
+      }
+    }
+
+    // 6. Cek stok available
+    const stokCol = produkRef.collection('stok');
+    const stokSnapAll = await stokCol.where('status', '==', 'tersedia').get();
+    if (stokSnapAll.size < jumlah) {
+      return m.reply(`❌ *TRANSAKSI GAGAL*\n\n» *Alasan* : Stok tidak mencukupi.\n\n*${namaStore}*`);
+    }
+
+    // 7. Generate transaction ID dan simpan ke pending
+    const transactionId = generateUniqueRefID();
+    const transactionData = {
+      nomor,
+      kodeProduk,
+      produkData,
+      tipe,
+      userId,
+      zoneId,
+      jumlah,
+      hargaPerItem,
+      baseTotal,
+      saldoAwal,
+      role,
+      nicknameUser,
+      userRef,
+      produkRef,
+      timestamp: Date.now()
+    };
+    
+    pendingTransactions.set(transactionId, transactionData);
+    
+    // Auto cleanup setelah 5 menit jika tidak dikonfirmasi
+    setTimeout(() => {
+      if (pendingTransactions.has(transactionId)) {
+        pendingTransactions.delete(transactionId);
+        console.log(`🗑️ Auto cleanup transaction ${transactionId}`);
+      }
+    }, 5 * 60 * 1000);
+
+    // 8. Kirim konfirmasi dengan tombol interaktif
+    let confirmText = `🛒 *KONFIRMASI PEMBELIAN*\n\n`;
+    confirmText += `» *Produk* : ${produkData.namaProduk || kodeProduk}\n`;
+    confirmText += `» *Tipe* : ${tipe}\n`;
+    if (tipe === 'SL') {
+      confirmText += `» *Tujuan* : ${userId} (${zoneId})\n`;
+      confirmText += `» *Nickname* : ${nicknameUser}\n`;
+    }
+    confirmText += `» *Jumlah* : ${jumlah}\n`;
+    confirmText += `» *Harga/Item* : Rp${hargaPerItem.toLocaleString()}\n`;
+    confirmText += `» *Total* : Rp${baseTotal.toLocaleString()}\n`;
+    confirmText += `» *Saldo Kamu* : Rp${saldoAwal.toLocaleString()}\n`;
+    confirmText += `» *Sisa Saldo* : Rp${(saldoAwal - baseTotal).toLocaleString()}\n\n`;
+    confirmText += `⚠️ *Pastikan data sudah benar!*\n`;
+    confirmText += `Konfirmasi dalam 5 menit atau transaksi dibatalkan otomatis.`;
+
+    const interactiveMessage = {
+      interactiveMessage: {
+        header: {
+          title: "🛒 Konfirmasi Pembelian",
+          hasMediaAttachment: false
+        },
+        body: {
+          text: confirmText
+        },
+        footer: {
+          text: `© ${namaStore} - Secure Transaction`
+        },
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: "quick_reply",
+              buttonParamsJson: JSON.stringify({
+                display_text: "✅ KONFIRMASI",
+                id: `confirm_buy_${transactionId}`
+              })
+            },
+            {
+              name: "quick_reply", 
+              buttonParamsJson: JSON.stringify({
+                display_text: "❌ BATALKAN",
+                id: `cancel_buy_${transactionId}`
+              })
+            }
+          ]
+        }
+      }
+    };
+
+    await client.sendMessage(m.chat, interactiveMessage, { quoted: m });
+
+  } catch (err) {
+    console.error('Buy Error:', err);
+    return m.reply('❌ Terjadi kesalahan saat memproses transaksi.');
+  }
+
+  break;
+}
+
+      // Handle konfirmasi pembelian
+      case 'confirm_buy': {
+        const transactionId = body.replace('.confirm_buy_', '');
+        
+        // Cek apakah transaksi masih pending
+        if (!pendingTransactions.has(transactionId)) {
+          return m.reply('❌ Transaksi tidak ditemukan atau sudah kadaluarsa.');
+        }
+
+        const transactionData = pendingTransactions.get(transactionId);
+        
+        // Pastikan yang konfirmasi adalah user yang sama
+        if (transactionData.nomor !== sender.split('@')[0]) {
+          return m.reply('❌ Kamu tidak berhak mengkonfirmasi transaksi ini.');
+        }
+
+        // Proses transaksi
+        try {
+          const {
+            nomor, kodeProduk, produkData, tipe, userId, zoneId, jumlah,
+            hargaPerItem, baseTotal, saldoAwal, role, nicknameUser,
+            userRef, produkRef
+          } = transactionData;
+
+          // Hapus dari pending
+          pendingTransactions.delete(transactionId);
+
+          // Cek ulang saldo user (mungkin berubah saat pending)
+          const userDoc = await userRef.get();
+          const currentSaldo = parseFloat(userDoc.data().saldo);
+          if (currentSaldo < baseTotal) {
+            return m.reply(`❌ *TRANSAKSI GAGAL*\n\nSaldo kamu berubah saat pending.\nSaldo sekarang: Rp${currentSaldo.toLocaleString()}\nDibutuhkan: Rp${baseTotal.toLocaleString()}`);
+          }
+
+          // Cek ulang stok (mungkin berkurang saat pending)
+          const stokCol = produkRef.collection('stok');
+          const stokSnapAll = await stokCol.where('status', '==', 'tersedia').get();
+          if (stokSnapAll.size < jumlah) {
+            return m.reply(`❌ *TRANSAKSI GAGAL*\n\nStok tidak mencukupi saat konfirmasi.\nStok tersedia: ${stokSnapAll.size}\nDibutuhkan: ${jumlah}`);
+          }
+
+          // Proses sama seperti sebelumnya
+          const ref_id = transactionId; // Pakai ID yang sama
+          const hariini = moment.tz('Asia/Jakarta').format('dddd, DD MMMM YYYY');
+          const time1 = moment.tz('Asia/Jakarta').format('HH:mm:ss');
+          const pushname = m.pushName || '-';
+
+          // Sort stok FIFO
+          let stokDocs = stokSnapAll.docs;
+          const firstData = stokDocs[0].data();
+          if (firstData.ditambahkanPada && firstData.ditambahkanPada.toMillis) {
+            stokDocs = stokDocs.sort((a, b) => {
+              const ta = a.data().ditambahkanPada.toMillis();
+              const tb = b.data().ditambahkanPada.toMillis();
+              return ta - tb;
+            });
+          } else {
+            stokDocs = stokDocs.sort((a, b) => a.id.localeCompare(b.id));
+          }
+          stokDocs = stokDocs.slice(0, jumlah);
+
+          // Batch update
+          const batch = db.batch();
+          const now = admin.firestore.FieldValue.serverTimestamp();
+          let followStr = '';
+          
+          stokDocs.forEach((docSnap, idx) => {
+            const dataStok = docSnap.data();
+            const stokRef = docSnap.ref;
+            batch.update(stokRef, {
+              status: 'terjual',
+              terjualPada: now
+            });
+            
+            let infoStok;
+            if (tipe === 'SL') {
+              infoStok = dataStok.id || '-';
+            } else if (tipe === 'ACCOUNT' || tipe === 'VOUCHER') {
+              infoStok = dataStok.data || '-';
+            } else {
+              infoStok = dataStok.raw || '-';
+            }
+            const nickStok = dataStok.nickname || '-';
+            followStr += `» *Item ${idx+1}* : ${infoStok}\n» *Nickname* : ${nickStok}\n`;
+          });
+
+          // Update user
+          const saldoBaru = currentSaldo - baseTotal;
+          batch.update(userRef, {
+            saldo: saldoBaru,
+            total_spend: admin.firestore.FieldValue.increment(baseTotal),
+            jumlah_transaksi_sukses: admin.firestore.FieldValue.increment(1),
+            lastOrderTime: now
+          });
+
+          // Update produk
+          const prodUpdates = {};
+          if (typeof produkData.stokTersedia === 'number') {
+            prodUpdates.stokTersedia = admin.firestore.FieldValue.increment(-jumlah);
+          }
+          prodUpdates.terjual = admin.firestore.FieldValue.increment(jumlah);
+          batch.update(produkRef, prodUpdates);
+
+          // Simpan history
+          const historyData = {
+            tanggal: now,
+            produk: produkData.namaProduk || kodeProduk,
+            tipe: tipe,
+            hargaPerItem: hargaPerItem,
+            jumlah: jumlah,
+            total: baseTotal,
+            tujuan: tipe==='SL'? userId : null,
+            zone: tipe==='SL'? zoneId : null,
+            invoice: ref_id,
+            status: 'Sukses',
+            metode: 'Saldo',
+            nicknameUser: nicknameUser
+          };
+          const histRef = userRef.collection('transactions').doc(ref_id);
+          batch.set(histRef, historyData);
+
+          const umumRef = db.collection('history_trx').doc(ref_id);
+          batch.set(umumRef, {
+            nomor,
+            invoice: ref_id,
+            produk: kodeProduk,
+            tipe: tipe,
+            tujuan: tipe==='SL'? userId : null,
+            harga: hargaPerItem,
+            jumlah: jumlah,
+            total: baseTotal,
+            waktu: now,
+            status: 'Sukses',
+            metode: 'Saldo',
+            nicknameUser: nicknameUser
+          });
+
+          await batch.commit();
+
+          // Kirim notifikasi sukses
+          let notifUser;
+          if (tipe === 'SL') {
+            notifUser = `✅〔 *TRANSAKSI SUKSES* 〕✅
+
+» *Invoice* : ${ref_id}
+» *Jenis Order* : ${kodeProduk}
+» *Harga* : Rp${hargaPerItem.toLocaleString()}
+» *Jumlah* : ${jumlah}
+» *Total Bayar* : Rp${baseTotal.toLocaleString()}
+» *Tujuan* : ${userId}
+» *Nickname ML* : ${nicknameUser}
+» *Waktu* : ${hariini}
+» *Jam* : ${time1} WIB
+
+──〔 *Follow ID Berikut !* 〕──
+${followStr}
+*${namaStore}*`;
+          } else {
+            notifUser = `✅〔 *TRANSAKSI SUKSES* 〕✅
+
+» *Invoice* : ${ref_id}
+» *Jenis Order* : ${kodeProduk}
+» *Harga* : Rp${hargaPerItem.toLocaleString()}
+» *Jumlah* : ${jumlah}
+» *Total Bayar* : Rp${baseTotal.toLocaleString()}
+» *Waktu* : ${hariini}
+» *Jam* : ${time1} WIB
+
+──〔 *Detail Berikut !* 〕──
+${followStr}
+*${namaStore}*`;
+          }
+          await client.sendMessage(m.chat, { text: notifUser, ai: true }, { quoted: m });
+
+          // Notifikasi pribadi
+          let notifPriv = `Kamu telah melakukan Pembelian *${jumlah} ${kodeProduk}*
+
+» *Harga* : Rp${hargaPerItem.toLocaleString()}
+» *Total Bayar* : Rp${baseTotal.toLocaleString()}
+» *Sisa Saldo* : Rp${saldoBaru.toLocaleString()}
+» *Waktu* : ${time1} WIB
+» *Tanggal* : ${hariini}
+
+──〔 *Detail Berikut !* 〕──
+${followStr}
+*${namaStore}*`;
+          await client.sendMessage(sender, { text: notifPriv, ai: true });
+
+          // Notifikasi owner
+          let notifOwner = `*TRANSAKSI SUKSES ⚡*
+
+*» Nama :* ${pushname}
+*» Nomor :* ${nomor}
+*» Produk :* ${kodeProduk}
+`;
+          if (tipe === 'SL') {
+            notifOwner += `*» Tujuan* : ${userId}\n*» Nickname ML* : ${nicknameUser}\n`;
+          }
+          notifOwner += `*» Harga* : Rp${hargaPerItem.toLocaleString()}\n*» Jumlah* : ${jumlah}\n*» Total* : Rp${baseTotal.toLocaleString()}\n*» Sisa Saldo* : Rp${saldoBaru.toLocaleString()}\n\n`;
+          notifOwner += `──〔 *Detail Berikut !* 〕──\n${followStr}\n*${namaStore}*`;
+          
+          for (const own of global.owner) {
+            await client.sendMessage(own + '@s.whatsapp.net', { text: notifOwner });
+          }
+
+        } catch (err) {
+          console.error('Confirm Buy Error:', err);
+          return m.reply('❌ Terjadi kesalahan saat memproses konfirmasi transaksi.');
+        }
+
+        break;
+      }
+
       // Test Button Message case - sesuai dokumentasi nstar-y/bail
       case 'testbutton': {
         if (!isOwner) return m.reply('❌ Hanya owner yang bisa menggunakan command ini.');
