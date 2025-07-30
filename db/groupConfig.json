@@ -1,0 +1,44 @@
+{
+  "120363401858120367@g.us": {
+    "lockedCommands": [
+      "sl",
+      "order"
+    ],
+    "allowedCommands": [
+      "tp",
+      "get"
+    ]
+  },
+  "120363376156864191@g.us": {
+    "lockedCommands": [
+      "get",
+      "tpo",
+      "depo",
+      "deposit",
+      "produk"
+    ],
+    "allowedCommands": [
+      "tp",
+      "qr"
+    ]
+  },
+  "120363389535791210@g.us": {
+    "lockedCommands": [
+      "buyqr",
+      "depo",
+      "deposit",
+      "qr",
+      "tpo"
+    ],
+    "allowedCommands": [
+      "scan",
+      "buy"
+    ]
+  },
+  "120363399704492621@g.us": {
+    "lockedCommands": [
+      "owner"
+    ],
+    "allowedCommands": []
+  }
+}
