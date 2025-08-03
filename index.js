@@ -21,6 +21,7 @@ const { Boom } = require('@hapi/boom')
 const PhoneNumber = require('awesome-phonenumber')
 const { color, bgcolor } = require('./lib/color')
 const { welcomeCard } = require("greetify");
+const logger = require('./logger') // Import enhanced logger with libsignal fixes
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 let d = new Date
@@ -98,11 +99,23 @@ const { version } = await fetchLatestBaileysVersion();
 
 const client = makeWASocket({
   version,
-  logger: pino({ level: "silent" }),
+  logger: logger.child({ module: 'baileys' }), // Libsignal fixes: enhanced logging
   printQRInTerminal: !usePairingCode,
   auth: state,
   browser: [ "Ubuntu", "Chrome", "20.0.04" ],
-  linkPreviewImageThumbnailWidth: 100 // WAJIB di versi 6.3.0 ke atas
+  linkPreviewImageThumbnailWidth: 100, // WAJIB di versi 6.3.0 ke atas
+  // Libsignal optimizations
+  syncFullHistory: false,
+  markOnlineOnConnect: true,
+  fireInitQueries: true,
+  emitOwnEvents: false,
+  getMessage: async (key) => {
+    if (store) {
+      const msg = await store.loadMessage(key.remoteJid, key.id)
+      return msg?.message || undefined
+    }
+    return proto.Message.fromObject({})
+  }
 });
 
 if (usePairingCode && !client.authState.creds.registered) {
@@ -121,6 +134,7 @@ if (usePairingCode && !client.authState.creds.registered) {
 }
 
 //=================================================//
+// Libsignal fixes: Enhanced JID decoding
 client.decodeJid = (jid) => {
 if (!jid) return jid
 if (/:\d+@/gi.test(jid)) {
@@ -128,46 +142,81 @@ let decode = jidDecode(jid) || {}
 return decode.user && decode.server && decode.user + '@' + decode.server || jid
 } else return jid
 }
-//=================================================//
+
 // Set public mode BEFORE event listeners
 client.public = true
+
 //=================================================//
+// Libsignal fixes: Enhanced event logging and error handling
+client.ev.on('connection.update', (update) => {
+  const { connection, lastDisconnect, qr } = update
+  
+  if (qr) {
+    logger.info('QR Code received for pairing')
+  }
+  
+  if (connection === 'close') {
+    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+    logger.warn(`Connection closed due to ${lastDisconnect?.error}, reconnecting: ${shouldReconnect}`)
+    
+    if (shouldReconnect) {
+      setTimeout(() => {
+        connectToWhatsApp()
+      }, 3000)
+    }
+  } else if (connection === 'open') {
+    success('qr', 'Bot connected successfully!')
+    logger.info('✅ Successfully connected to WhatsApp')
+  } else if (connection === 'connecting') {
+    start('qr', 'Connecting to WhatsApp...')
+    logger.info('🔄 Connecting to WhatsApp...')
+  }
+})
+
+client.ev.on('creds.update', saveCreds)
+
+// Libsignal fixes: Enhanced message logging
 client.ev.on('messages.upsert', async chatUpdate => {
 try {
-console.log('Received message update:', chatUpdate.type) // Debug log
+logger.debug(`📨 Message received: ${chatUpdate.type}`)
 mek = chatUpdate.messages[0]
 if (!mek.message) return
 mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message
 if (mek.key && mek.key.remoteJid === 'status@broadcast') return
 // Fix: Ganti kondisi public check
 if (!client.public && !mek.key.fromMe && chatUpdate.type === 'notify') {
-  console.log('Message blocked: bot is in private mode')
+  logger.warn('❌ Message blocked: bot is in private mode')
   return
 }
 if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return
-console.log('Processing message from:', mek.key.remoteJid) // Debug log
+logger.debug(`🔍 Processing message from: ${mek.key.remoteJid}`)
 m = smsg(client, mek,)
 require("./neko")(client, m, chatUpdate,)
 } catch (err) {
-console.log('Error in messages.upsert:', err)
+logger.error('❌ Error in messages.upsert:', err)
 }
 })
+
+// Libsignal fixes: Enhanced group participant logging
 const welcomeEnabled = true; // Ubah menjadi false untuk menonaktifkan pesan sambutan
 const goodbyeEnabled = false; // Ubah menjadi false untuk menonaktifkan pesan perpisahan
 
 client.ev.on('group-participants.update', async (anu) => {
   try {
+    logger.info(`👥 Group participant update: ${anu.action} in ${anu.id}`)
     let metadata = await client.groupMetadata(anu.id);
     let participants = anu.participants;
 
     for (let num of participants) {
       if (anu.action == 'add' && welcomeEnabled) {
+        logger.info(`✅ Sending welcome message to ${num}`)
         // Kirim teks sambutan
         await client.sendMessage(anu.id, {
           text: `Halo @${num.split("@")[0]}, Selamat Datang Di Group *${metadata.subject}*\n\n_Jangan lupa baca deskripsi Grup ya ✨`,
           mentions: [num]
         });
       } else if (anu.action == 'remove' && goodbyeEnabled) {
+        logger.info(`👋 Sending goodbye message for ${num}`)
         // Kirim teks perpisahan
         await client.sendMessage(anu.id, {
           text: `Keluar aja lu sono @${num.split("@")[0]}`,
@@ -176,16 +225,13 @@ client.ev.on('group-participants.update', async (anu) => {
       }
     }
   } catch (err) {
-    console.error('Error in group-participants.update:', err);
+    logger.error('❌ Error in group-participants.update:', err);
   }
 });
 //=================================================//
 //=================================================//
 //=================================================//
 //=================================================//
-client.ev.on('creds.update', saveCreds)
- //=================================================//
- //=================================================//
  client.sendImage = async (jid, path, caption = '', quoted = '', options) => {
 let buffer = Buffer.isBuffer(path) ? path : /^data:.*?\/.*?;base64,/i.test(path) ? Buffer.from(path.split`,`[1], 'base64') : /^https?:\/\//.test(path) ? await (await getBuffer(path)) : fs.existsSync(path) ? fs.readFileSync(path) : Buffer.alloc(0)
 return await client.sendMessage(jid, { image: buffer, caption: caption, ...options }, { quoted })}

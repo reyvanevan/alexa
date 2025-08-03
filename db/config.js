@@ -10,6 +10,17 @@ global.ownerName = 'Reyvan'
 global.sessionName = 'session' 
 namaStore = 'AtlanticGate' // NAMA STORE KAMU
 
+// Digiflazz H2H Configuration
+global.digiflazz = {
+  username: 'wakefiopR22W', // Ganti dengan username Digiflazz Anda
+  apiKey: 'a4b50385-36c2-55d8-a765-b69e89705cc1',   // Ganti dengan API Key Digiflazz Anda
+  baseUrl: 'https://api.digiflazz.com/v1', // Base URL API Digiflazz
+  webhook: {
+    username: 'your_webhook_username', // Username untuk webhook (opsional)
+    secret: 'your_webhook_secret'      // Secret untuk webhook validation (opsional)
+  }
+}
+
 priceBronze = 33000
 priceSilver = 29000
 priceGold = 29000
@@ -20,6 +31,12 @@ priceSilverPremium = 62000
 priceGoldPremium = 59000
 priceOwnerPremium = 56000
 
+// H2H Product Margins (untuk sistem seperti case 'show')
+marginBronze = 0.08  // 8%
+marginSilver = 0.05  // 5%
+marginGold = 0.03    // 3%
+marginOwner = 0.01   // 1%
+
 module.exports = {
   priceBronze,
   priceSilver,
@@ -28,7 +45,12 @@ module.exports = {
   priceBronzePremium,
   priceSilverPremium,
   priceGoldPremium,
-  priceOwnerPremium
+  priceOwnerPremium,
+  marginBronze,
+  marginSilver,
+  marginGold,
+  marginOwner,
+  digiflazz: global.digiflazz
 }
 
 global.bot = "y"

@@ -17,16 +17,36 @@ if (fs.existsSync(logFile)) {
     }
 }
 
-// Setting logger pino ke file
-const logger = pino(
-    {
-        transport: {
-            target: 'pino/file',
-            options: {
-                destination: logFile
+// Enhanced logger configuration with libsignal fixes
+const logger = pino({
+    level: 'info',
+    transport: {
+        targets: [
+            {
+                target: 'pino/file',
+                options: {
+                    destination: logFile,
+                    sync: false
+                },
+                level: 'info'
+            },
+            {
+                target: 'pino-pretty',
+                options: {
+                    colorize: true,
+                    levelFirst: true,
+                    ignore: 'time,hostname,pid',
+                    messageFormat: '{levelLabel} - {msg}'
+                },
+                level: 'info'
             }
-        }
+        ]
+    },
+    // Libsignal optimization - redact sensitive data
+    redact: {
+        paths: ['password', 'token', 'key', 'secret'],
+        censor: '[REDACTED]'
     }
-)
+})
 
 module.exports = logger

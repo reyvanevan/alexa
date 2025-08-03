@@ -6,6 +6,8 @@ let antilinkEnabled = false;
 const { BufferJSON, WA_DEFAULT_EPHEMERAL, makeWASocket, useMultiFileAuthState, getAggregateVotesInPollMessage, generateWAMessageFromContent, proto, generateWAMessageContent, generateWAMessage, prepareWAMessageMedia, downloadContentFromMessage, areJidsSameUser, getContentType } = require("baileys-mod")
 const fs = require('fs')
 const pino = require('pino')
+const logger = require('./logger') // Enhanced logger with libsignal fixes
+const { libsignalConfig, handleLibsignalError, performanceTracker } = require('./lib/libsignalConfig')
 const pushname = m.pushName || "No Name"
 let defaultMarkupPercentage = 0.01; 
 
@@ -40,13 +42,17 @@ const configPath = './db/groupConfig.json';
 const { exec, spawn, execSync } = require("child_process")
 const { smsg, tanggal, getTime, isUrl, sleep, clockString, runtime, fetchJson, getBuffer, jsonformat, format, parseMention, getRandom, getGroupAdmins, generateUniqueRefID, connect } = require('./lib/myfunc')
 const { handleBuyCommand, handleConfirmBuy, handleCancelBuy, handleAddProduk, handleAddStok, handleStok } = require('./lib/produkmanual')
+const { handleOrder, handleCek, handleRiwayat, handleProduk } = require('./lib/h2hCommands')
+const { aliasMap, getOrderFormat, getContoh } = require('./lib/productMapping')
 
 // Untuk menyimpan data transaksi yang menunggu konfirmasi
 const pendingTransactions = new Map();
 
 module.exports = client = async (client, m, chatUpdate, store, db_respon_list) => {
   try {
-      console.log('🔍 NEKO.JS: Message received from', m.key?.remoteJid || 'unknown'); // Debug log
+      // Libsignal fixes: Enhanced message logging
+      const tracker = performanceTracker.start('message-processing')
+      logger.debug(`� NEKO.JS: Message received from ${m.key?.remoteJid || 'unknown'}`);
       
       // Skip if message is from bot itself (prevent loop)
       const botNumber = await client.decodeJid(client.user.id);
@@ -1418,6 +1424,192 @@ break;
           break;
         }
 
+        case 'show':
+case 'get': {
+  const nomor = sender.split("@")[0];
+  console.log('Sender:', sender);
+  console.log('User Nomor:', nomor);
+
+  // Ambil data pengguna dari Firestore
+  const userRef = db.collection('users').doc(nomor);
+
+  let userDoc;
+  try {
+    userDoc = await userRef.get();
+  } catch (error) {
+    console.error('Error accessing Firestore:', error);
+    return m.reply('Terjadi kesalahan saat mengakses data pengguna. Silakan coba lagi nanti.');
+  }
+
+  if (!userDoc.exists) {
+    return m.reply('Kamu belum terdaftar. Silakan ketik: *Daftar* untuk bisa mengakses.');
+  }
+
+  const userData = userDoc.data();
+
+  // Ambil data produk dari file JSON
+  let productData;
+  try {
+    productData = JSON.parse(fs.readFileSync('./db/datadigi.json', 'utf8'));
+  } catch (error) {
+    console.error('Error reading product data:', error);
+    return m.reply('Terjadi kesalahan saat mengakses data produk. Silakan coba lagi nanti.');
+  }
+
+  let aliasKey = args[0] ? args[0].toLowerCase() : null;
+
+  if (!aliasKey || !aliasMap.hasOwnProperty(aliasKey)) {
+    return m.reply(`Key produk "${aliasKey}" tidak dikenali. Masukkan yang valid.`);
+  }
+  
+  //const { marginBronze, marginSilver, marginGold, marginOwner } = require('./db/config')
+  const { category, brand, type, types } = aliasMap[aliasKey];
+  const requestedCategory = category.toUpperCase();
+  const requestedBrand = brand.toUpperCase();
+
+  // Filter produk berdasarkan kategori, brand, dan tipe
+  let matchingProducts = productData.filter(item =>
+    item.brand.toUpperCase() === requestedBrand &&
+    item.category.toUpperCase() === requestedCategory &&
+    (types ? types.includes(item.type) : item.type.toUpperCase() === type.toUpperCase())
+  );
+
+  if (matchingProducts.length === 0) {
+    return m.reply(`Tidak ada produk ditemukan untuk Produk "${aliasKey}".`);
+  }
+
+  matchingProducts.sort((a, b) => a.price - b.price);
+
+  const configData = require('./db/config.js');
+  const defaultMarkupPercentage = configData.defaultMarkupPercentage;
+  const formatOrder = getOrderFormat(aliasKey);
+  const contohOrder = getContoh(aliasKey);
+
+  let formattedResponse = `━═━═━┤❄️ *${requestedBrand}* ├━═━═━\n\n*Status* : ✅ = Ready\n*Status* : ❌ = Close\n*Order Dengan QR ketik* :\n\`QR ${formatOrder}\`\n*Order Dengan Saldo ketik* :\n\`TP ${formatOrder}\`\n*Contoh* :\n${contohOrder}\n━━═━═━━═━═━━═━═━͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏͏\n`;
+	
+    //modified
+    matchingProducts.forEach(product => {
+  const originalPrice = parseFloat(product.price || 0);
+  if (isNaN(originalPrice) || originalPrice === 0) return;
+
+  const statusEmoji = product.seller_product_status && product.buyer_product_status ? '✅' : '❌';
+
+  const hargaSilver = Math.floor(originalPrice * (1 + marginSilver)).toLocaleString();
+  const hargaGold = Math.floor(originalPrice * (1 + marginGold)).toLocaleString();
+  const hargaOwner = Math.floor(originalPrice * (1 + marginOwner)).toLocaleString();
+
+  // Awal teks produk
+  formattedResponse += `\n❄️ *${product.product_name}*\n`;
+
+  // Harga ditampilkan sesuai role
+  if (["BRONZE", "SILVER", "GOLD"].includes(userData.role)) {
+    formattedResponse += `> Harga Silver : Rp. ${hargaSilver}\n`;
+    formattedResponse += `> Harga Gold : Rp. ${hargaGold}\n`;
+  } else if (userData.role === "OWNER") {
+    formattedResponse += `> Harga Silver : Rp. ${hargaSilver}\n`;
+    formattedResponse += `> Harga Gold : Rp. ${hargaGold}\n`;
+    formattedResponse += `> Harga Owner : Rp. ${hargaOwner}\n`;
+  }
+
+  formattedResponse += `> Kode : \`${product.buyer_sku_code}\`\n`;
+  formattedResponse += `> Status : ${statusEmoji}\n┈ׅ──ׄ─꯭─꯭──────꯭ׄ──ׅ┈\n`;
+});
+
+    /*default
+  matchingProducts.forEach(product => {
+    const originalPrice = parseFloat(product.price || 0);
+if (isNaN(originalPrice) || originalPrice === 0) return; // skip produk invalid
+
+    let markupPercentage = defaultMarkupPercentage;
+
+    // Ambil markup berdasarkan role pengguna
+    if (userData) {
+      switch (userData.role) {
+        case "GOLD":
+          markupPercentage = marginGold;
+          break;
+        case "SILVER":
+          markupPercentage = marginSilver;
+          break;
+        case "BRONZE":
+          markupPercentage = marginBronze;
+          break;
+        case "OWNER":
+          markupPercentage = marginOwner;
+          break;
+        default:
+          break;
+      }
+    }
+	
+    const increasedPrice = originalPrice * (1 + markupPercentage);
+    let adjustedPrice;
+    
+    // Pembulatan harga berdasarkan role pengguna
+    if (userData.role === "BRONZE" || userData.role === "OWNER") {
+      adjustedPrice =  Math.floor(increasedPrice);
+    } else if (userData.role === "SILVER" || userData.role === "GOLD") {
+      adjustedPrice = Math.floor(increasedPrice);
+    } else {
+      adjustedPrice = increasedPrice; // Jika role tidak dikenali, gunakan harga asli tanpa pembulatan
+    }
+
+ const statusEmoji = product.seller_product_status && product.buyer_product_status ? '✅' : '❌';
+
+//> *Harga Owner* : Rp. ${Math.floor(originalPrice * (1 + marginOwner)).toLocaleString()}
+//Harga Bronze : Rp. ${Math.floor(originalPrice * (1 + marginBronze)).toLocaleString()}      
+    formattedResponse += `\n❄️ *${product.product_name}*\n > Harga Silver : Rp. ${Math.floor(originalPrice * (1 + marginSilver)).toLocaleString()}
+> Harga Gold : Rp. ${Math.floor(originalPrice * (1 + marginGold)).toLocaleString()}
+> Harga Owner : Rp. ${Math.floor(originalPrice * (1 + marginOwner)).toLocaleString()}
+> Kode : \`${product.buyer_sku_code}\`
+> Status : ${statusEmoji}\n┈ׅ──ׄ─꯭─꯭──────꯭ׄ──ׅ┈\n`;
+  });
+*/
+  m.reply(formattedResponse);
+}
+break;
+
+        // H2H Automatic Transaction Cases
+        case 'order': {
+          await handleOrder(body, sender, db, m);
+          break;
+        }
+
+        case 'cek': {
+          await handleCek(body, sender, db, m);
+          break;
+        }
+
+        case 'riwayat': {
+          await handleRiwayat(sender, db, m);
+          break;
+        }
+
+        case 'produk': {
+          await handleProduk(body, sender, db, m);
+          break;
+        }
+        case 'getlay': {
+        if (!isOwner) return;
+        const username = global.digiflazz.username;
+        const apiKey = global.digiflazz.apiKey;
+        const cmd = 'prepaid';
+        const combinedString = username + apiKey + cmd;
+        const signature = crypto.createHash('md5').update(combinedString).digest('hex');
+        const endPoint = "https://api.digiflazz.com/v1/price-list";
+        const postData = {
+          cmd,
+          username,
+          sign: signature,
+        };
+        const apiResponse = await connect(endPoint, postData);
+        if (apiResponse && apiResponse.data) {
+          fs.writeFileSync(productData, JSON.stringify(apiResponse.data, null, 2));
+          m.reply(`Layanan Berhasil di Update`);
+        }
+      }
+      break;
+
       // Handle konfirmasi pembelian
       case 'confirm_buy': {
         await handleConfirmBuy(body, sender, pendingTransactions, db, m, client, moment, admin, namaStore, global);
@@ -1647,7 +1839,14 @@ break;
 
       default:
     }
+    
+    // Libsignal fixes: Complete performance tracking
+    performanceTracker.end(tracker)
+    
   } catch (err) {
+    // Libsignal fixes: Enhanced error handling
+    handleLibsignalError(err, 'neko.js main handler')
+    logger.error(`❌ Error in main message handler: ${err.message}`)
     m.reply(util.format(err))
   }
 }

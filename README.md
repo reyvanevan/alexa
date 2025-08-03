@@ -21,6 +21,25 @@ Alexa adalah asisten WhatsApp AI canggih yang dibangun berdasarkan teknologi bai
 - 🖼️ **Full-Size Profile Pictures** - Upload foto profil ukuran penuh
 - 📱 **Custom Pairing Codes** - Kode pairing custom "ALEXABOT"
 
+### 💼 **H2H (Host-to-Host) Business Features**
+- 🏪 **Digital Product Store** - Toko produk digital otomatis
+- 💳 **Digiflazz Integration** - Integrasi penuh dengan Digiflazz API
+- 🎮 **Gaming Products** - Mobile Legends, Free Fire, PUBG, dll
+- 📱 **Pulsa & Data** - Top-up pulsa dan paket data semua operator
+- 💰 **E-Wallet** - Top-up GoPay, OVO, DANA, ShopeePay
+- ⚡ **PLN & PDAM** - Pembayaran listrik dan air
+- 🔄 **Auto Product Sync** - Sinkronisasi produk otomatis dari Digiflazz
+- 📊 **Transaction Management** - Manajemen transaksi real-time
+- 💹 **Smart Pricing** - Sistem harga otomatis dengan margin
+
+### 🛠️ **Libsignal Fixes & Performance**
+- 🧹 **Clean Console Output** - Output console yang bersih tanpa noise
+- 📝 **Enhanced Logging** - Sistem logging dual transport (file + console)
+- ⚡ **Performance Monitoring** - Real-time performance tracking
+- 🛡️ **Enhanced Error Handling** - Error handling dengan context yang jelas
+- 🔌 **Smart Connection Management** - Manajemen koneksi yang lebih stabil
+- 📊 **Data Protection** - Automatic redaction untuk data sensitif
+
 ### 🛠️ **Bot Management**
 - 👥 **Smart Group Management** - Manajemen grup otomatis
 - 🔒 **Advanced Security** - Sistem keamanan berlapis
@@ -65,6 +84,63 @@ node index.js
 - Gunakan kode pairing "ALEXABOT" untuk connect
 - Scan QR code atau gunakan pairing code
 
+## 💼 H2H Business Setup
+
+### 1. **Konfigurasi Digiflazz**
+```javascript
+// Edit db/config.js
+global.digiflazz = {
+    username: 'your_username',
+    apiKey: 'your_api_key',
+    production: false // true untuk production
+}
+```
+
+### 2. **Update Product Database**
+```bash
+# Kirim pesan 'getlay' ke bot untuk sync produk dari Digiflazz
+# Atau jalankan manual:
+node -e "require('./lib/h2hCommands').updateProducts()"
+```
+
+### 3. **Test H2H Features**
+```bash
+# Test di WhatsApp:
+produk ml          # Lihat produk Mobile Legends
+order ML5 62xxx    # Order diamond ML
+cek TRX123         # Cek status transaksi
+```
+
+## 🛠️ Libsignal Fixes Features
+
+Alexa menggunakan **libsignal fixes** dari baileys-mod untuk pengalaman development yang lebih baik:
+
+### ✨ **Enhanced Logging**
+- 📝 Dual transport logging (file + console)
+- 🎨 Color-coded log levels dengan emoji
+- 🔒 Automatic sensitive data redaction
+- 📊 Auto log rotation (>10MB)
+
+### 🧹 **Clean Console Output**
+- ❌ Filter libsignal warnings yang tidak penting
+- 🔇 Suppress protobuf & native module noise
+- ✅ Hanya tampilkan error yang relevan
+- 🎯 Focus pada debugging yang penting
+
+### ⚡ **Performance Monitoring**
+- ⏱️ Real-time message processing time
+- 📈 Connection performance tracking
+- 💾 Memory usage monitoring (optional)
+- 📊 Context-aware performance metrics
+
+### 🛡️ **Enhanced Error Handling**
+- 🎯 Context-aware error logging
+- 🔐 Sensitive data protection dalam error messages
+- 📋 Structured error reporting
+- 🐛 Better debugging information
+
+**Dokumentasi lengkap**: Lihat `LIBSIGNAL_FIXES.md` untuk detail implementasi.
+
 ## 📋 Command List
 
 ### 🤖 AI Commands
@@ -88,6 +164,15 @@ node index.js
 - `.antilink on/off` - Toggle antilink protection
 - `.welcome on/off` - Toggle pesan sambutan
 
+### 💼 H2H Business Commands
+- `produk [kategori]` - Lihat daftar produk (ml, ff, pubg, dana, ovo, dll)
+- `order [kode] [target]` - Buat pesanan produk
+- `cek [trxid]` - Cek status transaksi
+- `riwayat` - Lihat riwayat transaksi
+- `getlay` - Update produk dari Digiflazz (admin only)
+- `saldo` - Cek saldo Digiflazz
+- `harga [produk]` - Cek harga produk spesifik
+
 ### 🎮 Entertainment
 - `.meme` - Generate meme random
 - `.joke` - Cerita lucu
@@ -104,28 +189,35 @@ node index.js
 ## 🔧 Teknologi
 
 - **Node.js** - Runtime JavaScript
-- **baileys-mod** - WhatsApp Web API (Modified version)
+- **baileys-mod v6.8.5** - WhatsApp Web API (Modified version dengan libsignal fixes)
 - **AI Integration** - OpenAI GPT, Google Gemini
 - **Express.js** - Web server untuk webhook
-- **Database** - JSON/MongoDB untuk penyimpanan
-- **Firebase** - Cloud storage (optional)
+- **Database** - JSON/Firebase untuk penyimpanan
+- **Digiflazz API** - H2H digital product integration
+- **Pino Logger** - Enhanced logging dengan pino-pretty
+- **MD5 Encryption** - Secure API authentication
 
 ## 🎯 Roadmap
 
-### Phase 1 (Current)
+### Phase 1 (Completed) ✅
 - [x] Basic WhatsApp bot functionality
-- [x] Custom pairing code
-- [x] Group management
-- [x] Basic AI responses
+- [x] Custom pairing code "ALEXABOT"
+- [x] Group management with smart features
+- [x] Basic AI responses and interactions
+- [x] H2H Digital Product Integration with Digiflazz
+- [x] Auto product sync and pricing system
+- [x] Libsignal fixes for enhanced performance
+- [x] Enhanced logging and error handling
 
-### Phase 2 (Upcoming)
+### Phase 2 (In Progress) 🚧
 - [ ] Advanced AI conversation with memory
 - [ ] Voice message processing & speech-to-text
 - [ ] Image recognition & analysis
 - [ ] Multi-bot coordination
 - [ ] Advanced analytics dashboard
+- [ ] Web dashboard for H2H management
 
-### Phase 3 (Future)
+### Phase 3 (Future) 🔮
 - [ ] Web dashboard interface
 - [ ] Plugin marketplace
 - [ ] Multi-platform support (Telegram, Discord)
@@ -137,17 +229,25 @@ node index.js
 ```
 alexa/
 ├── 📄 package.json          # Project configuration
-├── 📄 index.js             # Main bot entry point
+├── 📄 index.js             # Main bot entry point with libsignal fixes
+├── 📄 logger.js            # Enhanced logger dengan dual transport
+├── 📄 neko.js              # Message handler with performance tracking
 ├── 📄 .env.example         # Environment template
-├── 📁 db/                  # Database files
+├── � LIBSIGNAL_FIXES.md   # Libsignal implementation guide
+├── 📄 PANDUAN_H2H.md       # H2H integration guide
+├── �📁 db/                  # Database files
 │   ├── config.js           # Bot configuration
-│   ├── database.js         # Database handler
+│   ├── datadigi.json       # Digiflazz product database (9760+ products)
 │   └── *.json             # Data storage
 ├── 📁 lib/                 # Library files
 │   ├── myfunc.js          # Utility functions
 │   ├── color.js           # Console colors
+│   ├── h2hCommands.js     # H2H command handlers
+│   ├── productMapping.js  # Product mapping and filtering
+│   ├── libsignalConfig.js # Libsignal optimization config
 │   └── *.js               # Other utilities
 ├── 📁 src/                 # Source files
+├── 📁 logs/                # Enhanced log files with auto-rotation
 └── 📁 session/             # WhatsApp session (auto-generated)
 ```
 
@@ -167,10 +267,22 @@ GEMINI_API_KEY=your_gemini_key
 OWNER_NUMBER=62xxx
 ADMIN_NUMBERS=62xxx,62xxx
 
+# H2H Digiflazz Configuration
+DIGIFLAZZ_USERNAME=your_username
+DIGIFLAZZ_API_KEY=your_api_key
+DIGIFLAZZ_WEBHOOK_SECRET=your_webhook_secret
+
 # Features
 ENABLE_AI_CHAT=true
 ENABLE_AUTO_RESPONSE=true
 ENABLE_GROUP_MANAGEMENT=true
+ENABLE_H2H_BUSINESS=true
+ENABLE_LIBSIGNAL_FIXES=true
+
+# Logging & Performance
+LOG_LEVEL=info
+PERFORMANCE_TRACKING=true
+CLEAN_CONSOLE_OUTPUT=true
 ```
 
 ## 📝 Lisensi
@@ -203,10 +315,18 @@ Kontribusi sangat welcome! Silakan:
 
 ## 🙏 Acknowledgments
 
-- [Baileys](https://github.com/WhiskeySockets/Baileys) - WhatsApp Web API
+- [Baileys-mod](https://github.com/nstar-y/Bail) - WhatsApp Web API dengan libsignal fixes
+- [Digiflazz](https://digiflazz.com/) - Digital product H2H provider
 - [OpenAI](https://openai.com/) - AI Integration
 - [Node.js](https://nodejs.org/) - Runtime Environment
+- [Pino](https://getpino.io/) - High performance logging
 - Komunitas developer Indonesia 🇮🇩
+
+### 🌟 **Special Features**
+- **Libsignal Fixes**: Enhanced development experience dengan clean logging
+- **H2H Integration**: Full digital product store automation
+- **AI-Powered**: Smart conversations dan auto-response
+- **Enterprise-Ready**: Production-grade logging dan monitoring
 
 ---
 
