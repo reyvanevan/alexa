@@ -1,23 +1,24 @@
 const fs = require('fs')
 const chalk = require('chalk')
+require('dotenv').config() // Load environment variables
 
-global.owner = ['6281224258870' , '6289653544913']
-global.nomerOwner = '6281224258870'
+global.owner = process.env.OWNER_NUMBERS ? process.env.OWNER_NUMBERS.split(',') : ['6281224258870', '6289653544913']
+global.nomerOwner = process.env.NOMER_OWNER || '6281224258870'
 
-global.nomerBot = '6285169545258' 
-global.botName = 'aqualyn v1'
-global.ownerName = 'Reyvan'
-global.sessionName = 'session' 
-namaStore = 'AtlanticGate' // NAMA STORE KAMU
+global.nomerBot = process.env.NOMER_BOT || '6285169545258'
+global.botName = process.env.BOT_NAME || 'aqualyn v1'
+global.ownerName = process.env.OWNER_NAME || 'Reyvan'
+global.sessionName = process.env.SESSION_NAME || 'session'
+namaStore = process.env.NAMA_STORE || 'AtlanticGate' // NAMA STORE KAMU
 
-// Digiflazz H2H Configuration
+// Digiflazz H2H Configuration - Using Environment Variables
 global.digiflazz = {
-  username: 'wakefiopR22W', // Ganti dengan username Digiflazz Anda
-  apiKey: 'a4b50385-36c2-55d8-a765-b69e89705cc1',   // Ganti dengan API Key Digiflazz Anda
-  baseUrl: 'https://api.digiflazz.com/v1', // Base URL API Digiflazz
+  username: process.env.DIGIFLAZZ_USERNAME || 'your_username_here', // Ganti dengan username Digiflazz Anda
+  apiKey: process.env.DIGIFLAZZ_API_KEY || 'your_api_key_here',   // Ganti dengan API Key Digiflazz Anda
+  baseUrl: process.env.DIGIFLAZZ_BASE_URL || 'https://api.digiflazz.com/v1', // Base URL API Digiflazz
   webhook: {
-    username: 'your_webhook_username', // Username untuk webhook (opsional)
-    secret: 'your_webhook_secret'      // Secret untuk webhook validation (opsional)
+    username: process.env.DIGIFLAZZ_WEBHOOK_USERNAME || 'your_webhook_username', // Username untuk webhook (opsional)
+    secret: process.env.DIGIFLAZZ_WEBHOOK_SECRET || 'your_webhook_secret'      // Secret untuk webhook validation (opsional)
   }
 }
 
