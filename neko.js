@@ -797,7 +797,7 @@ case 'bot': {
     pesanBot = global.bot;
   }
 
-  client.sendMessage(m.chat, { text: pesanBot }, { quoted: m });
+  m.reply(pesanBot);
   break;
 }
 
@@ -825,7 +825,7 @@ case 'setbot': {
    case 'admin':
    case 'etmin':
             {
-    client.sendMessage(m.chat, { text: global.min }, { quoted: m });
+    m.reply(global.min);
     break;
 }
  
@@ -1298,13 +1298,11 @@ case 'form': {
 ᨳ 𝗍𝖺𝗇𝗀𝗀𝖺𝗅 𝗈𝗋𝖽𝖾𝗋 : ${tanggal}
 ᨳ 𝗈𝗋𝖽𝖾𝗋 𝖻𝗒 : ${m.sender.split('@')[0]}
 
- ⋮ 𖢷 𖥦 send form to *a̲d̲m̲i̲n̲* .. 🩰`;
+ ⋮ 𖢷 𖥦 send form to *a̲d̲m̲i̲n̲* .. 🩰`;
 
-  client.sendMessage(m.chat, { text: formatOrder }, { quoted: m });
+  m.reply(formatOrder);
 }
 break;
-
-
 
             
           case 'mlreg':{
@@ -1346,7 +1344,7 @@ break;
             const regionLogin = data.result.this_login_country.toUpperCase();
             
             const message = ` *DETAIL AKUN MOBILE LEGENDS*\n\n Username: ${decodedUsername}\n Region Akun: ${regionCountry}\n Region Login: ${regionLogin}`;
-            client.sendMessage(m.chat, { text: message }, { quoted: m });
+            m.reply(message);
         }
     } catch (error) {
         console.error('Error fetching data:', error);
@@ -1760,7 +1758,7 @@ break;
 
       // Test AI Debug - Compare group vs private behavior
       case 'testaidebug': {
-        if (!isOwner) return client.sendMessage(m.chat, { text: '❌ Hanya owner yang bisa menggunakan command ini.' }, { quoted: m });
+        if (!isOwner) return m.reply('❌ Hanya owner yang bisa menggunakan command ini.');
         
         const chatType = m.isGroup ? "GROUP CHAT" : "PRIVATE CHAT";
         
