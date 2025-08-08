@@ -13,13 +13,22 @@ namaStore = process.env.NAMA_STORE || 'AtlanticGate' // NAMA STORE KAMU
 
 // Digiflazz H2H Configuration - Using Environment Variables
 global.digiflazz = {
-  username: process.env.DIGIFLAZZ_USERNAME || 'your_username_here', // Ganti dengan username Digiflazz Anda
-  apiKey: process.env.DIGIFLAZZ_API_KEY || 'your_api_key_here',   // Ganti dengan API Key Digiflazz Anda
+  username: process.env.DIGIFLAZZ_USERNAME || '', // Username akan diambil dari .env file
+  apiKey: process.env.DIGIFLAZZ_API_KEY || '',   // API Key akan diambil dari .env file
   baseUrl: process.env.DIGIFLAZZ_BASE_URL || 'https://api.digiflazz.com/v1', // Base URL API Digiflazz
   webhook: {
-    username: process.env.DIGIFLAZZ_WEBHOOK_USERNAME || 'your_webhook_username', // Username untuk webhook (opsional)
-    secret: process.env.DIGIFLAZZ_WEBHOOK_SECRET || 'your_webhook_secret'      // Secret untuk webhook validation (opsional)
+    username: process.env.DIGIFLAZZ_WEBHOOK_USERNAME || '', // Username untuk webhook (opsional)
+    secret: process.env.DIGIFLAZZ_WEBHOOK_SECRET || ''      // Secret untuk webhook validation (opsional)
   }
+}
+
+// Validation untuk memastikan credentials Digiflazz tersedia
+if (!global.digiflazz.username || !global.digiflazz.apiKey) {
+  console.log(chalk.red('⚠️  PERINGATAN: Digiflazz credentials tidak ditemukan!'))
+  console.log(chalk.yellow('💡 Pastikan file .env sudah dibuat dengan format:'))
+  console.log(chalk.cyan('   DIGIFLAZZ_USERNAME=your_username'))
+  console.log(chalk.cyan('   DIGIFLAZZ_API_KEY=your_api_key'))
+  console.log(chalk.yellow('📝 Gunakan .env.example sebagai template'))
 }
 
 priceBronze = 33000
